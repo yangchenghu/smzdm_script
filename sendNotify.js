@@ -64,6 +64,12 @@ let DD_BOT_TOKEN = '';
 //密钥，机器人安全设置页面，加签一栏下面显示的SEC开头的字符串
 let DD_BOT_SECRET = '';
 
+// =======================================飞书机器人通知设置区域===========================================
+//环境变量 FS_KEY：飞书机器人的完整 Webhook 地址或 /hook/ 后的 key
+let FS_KEY = '';
+//环境变量 FS_SECRET：机器人安全设置中的签名校验密钥，未开启签名校验可留空
+let FS_SECRET = '';
+
 // =======================================企业微信机器人通知设置区域===========================================
 //此处填你企业微信机器人的 webhook(详见文档 https://work.weixin.qq.com/api/doc/90000/90136/91770)，例如：693a91f6-7xxx-4bc4-97a0-0ec2sifa5aaa
 //(环境变量名 QYWX_KEY)
@@ -166,6 +172,13 @@ if (process.env.DD_BOT_TOKEN) {
   }
 }
 
+if (process.env.FS_KEY) {
+  FS_KEY = process.env.FS_KEY;
+}
+if (process.env.FS_SECRET) {
+  FS_SECRET = process.env.FS_SECRET;
+}
+
 if (process.env.QYWX_KEY) {
   QYWX_KEY = process.env.QYWX_KEY;
 }
@@ -200,7 +213,7 @@ async function sendNotify(
   params = {},
   author = '\n\n本通知 By：https://github.com/whyour/qinglong'
 ) {
-  //提供6种通知
+  //发送已配置的通知
   desp += author; //增加作者信息，防止被贩卖等
   await Promise.all([
     serverNotify(text, desp), //微信server酱
@@ -212,6 +225,7 @@ async function sendNotify(
     BarkNotify(text, desp, params), //iOS Bark APP
     tgBotNotify(text, desp), //telegram 机器人
     ddBotNotify(text, desp), //钉钉机器人
+    fsBotNotify(text, desp), //飞书机器人
     qywxBotNotify(text, desp), //企业微信机器人
     qywxamNotify(text, desp), //企业微信应用消息推送
     iGotNotify(text, desp, params), //iGot
@@ -540,6 +554,58 @@ function ddBotNotify(text, desp) {
     else {
       resolve();
     }
+  });
+}
+
+function fsBotNotify(text, desp) {
+  return new Promise((resolve) => {
+    if (!FS_KEY) {
+      resolve();
+      return;
+    }
+    const body = {
+      msg_type: 'text',
+      content: {
+        text: `${text}\n\n${desp}`
+      }
+    };
+    if (FS_SECRET) {
+      const crypto = require('crypto');
+      body.timestamp = String(Math.floor(Date.now() / 1000));
+      //飞书使用 timestamp + 换行 + secret 作为 HMAC 密钥，对空字符串签名
+      body.sign = crypto.createHmac('sha256', `${body.timestamp}\n${FS_SECRET}`)
+        .update('').digest('base64');
+    }
+    const options = {
+      url: FS_KEY.startsWith('https://') ? FS_KEY : `https://open.feishu.cn/open-apis/bot/v2/hook/${FS_KEY}`,
+      body: JSON.stringify(body),
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      timeout
+    };
+    $.post(options, (err, resp, data) => {
+      try {
+        if (err) {
+          console.log('飞书发送通知消息失败！！\n');
+        }
+        else {
+          data = JSON.parse(data);
+          if (data.code === 0 || data.StatusCode === 0) {
+            console.log('飞书发送通知消息成功🎉。\n');
+          }
+          else {
+            console.log(`飞书发送通知消息失败：${data.msg || data.StatusMessage}\n`);
+          }
+        }
+      }
+      catch (e) {
+        $.logErr(e, resp);
+      }
+      finally {
+        resolve(data);
+      }
+    });
   });
 }
 
